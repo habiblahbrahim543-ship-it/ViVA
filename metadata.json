@@ -1,0 +1,6 @@
+{
+  "name": "VIVA",
+  "description": "VIVA - Modern short-video social network platform with feeds, creators, interactions, and discovery",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

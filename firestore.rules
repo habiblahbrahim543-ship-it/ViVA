@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (request.auth.token.admin == true ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN');
+    }
+
+    // --- USERS COLLECTION ---
+    match /users/{userId} {
+      allow read: if true;
+
+      // Users can create their initial profile, but cannot self-grant verified or admin role
+      allow create: if isUser(userId)
+        && request.resource.data.isVerified == false
+        && request.resource.data.verificationStatus == 'unverified'
+        && request.resource.data.role == 'USER';
+
+      // Users can update their bio, displayName, avatar, website, but NEVER isVerified or role
+      allow update: if (isUser(userId)
+        && request.resource.data.isVerified == resource.data.isVerified
+        && request.resource.data.verificationStatus == resource.data.verificationStatus
+        && request.resource.data.role == resource.data.role)
+        || isAdmin();
+
+      allow delete: if isUser(userId) || isAdmin();
+    }
+
+    // --- VERIFICATION REQUESTS ---
+    match /verificationRequests/{requestId} {
+      // Users can only view their own requests; admins can view all
+      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
+
+      // Users can create a request with status 'pending' only
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+
+      // Users can only update their request if status is 'more_information_required'
+      // Only admins can approve, reject, or set review statuses
+      allow update: if (isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && resource.data.status == 'more_information_required'
+        && request.resource.data.status == 'under_review')
+        || isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // --- ADMIN NOTIFICATIONS ---
+    match /adminNotifications/{notificationId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated(); // Triggered on verification request or report submission
+      allow update, delete: if isAdmin();
+    }
+
+    // --- USER NOTIFICATIONS ---
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // --- VIDEOS, COMMENTS, LIKES, REPORTS ---
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.creatorId == request.auth.uid;
+      allow update, delete: if (isAuthenticated() && resource.data.creatorId == request.auth.uid) || isAdmin();
+    }
+
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
+    }
+
+    match /moderation_reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    match /blocked_users/{blockId} {
+      allow read, write: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}
